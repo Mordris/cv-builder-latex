@@ -94,7 +94,3 @@ Despite these test failures, the core PDF generation logic in `src/utils/pdfGene
 - Refactor PDF generation logic for potentially better testability.
 - Add unit tests for `pdfGenerator.js`.
 - Fix the outstanding component test issues.
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details (or add an MIT license file).
