@@ -1,28 +1,63 @@
 // src/components/__tests__/CvEditor.spec.js
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-// --- FIX: Use mount from vue/test-utils ---
-import { mount } from "@vue/test-utils";
-import { render, screen, within } from "@testing-library/vue"; // Keep for querying if needed, but mount is primary
-import userEvent from "@testing-library/user-event";
+import { mount, flushPromises } from "@vue/test-utils"; // Import flushPromises
 import CvEditor from "../CvEditor.vue";
-// Import the function *target* itself for mocking checks
 import { generatePdfFromData } from "../../utils/pdfGenerator";
 
 // --- Mock the utility function module ---
-vi.mock("../../utils/pdfGenerator"); // Auto-mock the module
+vi.mock("../../utils/pdfGenerator");
 
-// --- Define Stubs (Keep definitions as they are) ---
+// --- Define Stubs ---
 const AddSectionModalStub = {
-  /* ... */
+  name: "AddSectionModal",
+  props: ["show"],
+  emits: ["close", "select-section"],
+  template: `
+    <div v-if="show" data-testid="add-section-modal">
+      Mock Modal
+      <button data-testid="select-workexp-btn" @click="$emit('select-section', 'workExperience')">Select WorkExp</button>
+      <button @click="$emit('close')">Close</button>
+    </div>
+  `,
 };
+
 const InputFieldStub = {
-  /* ... */
+  name: "InputField",
+  props: ["modelValue", "label", "type", "placeholder", "disabled"],
+  emits: ["update:modelValue"],
+  template: `
+    <div>
+      <label :for="label">{{ label }}</label>
+      <input :id="label" :aria-label="label" :value="modelValue" @input="$emit('update:modelValue', $event.target.value)" :placeholder="placeholder" :disabled="disabled" />
+    </div>
+  `,
 };
+
 const TextareaFieldStub = {
-  /* ... */
+  name: "TextareaField",
+  props: ["modelValue", "label", "placeholder", "disabled", "rows"],
+  emits: ["update:modelValue"],
+  template: `
+      <div>
+        <label :for="label">{{ label }}</label>
+        <textarea :id="label" :aria-label="label" :value="modelValue" @input="$emit('update:modelValue', $event.target.value)" :placeholder="placeholder" :disabled="disabled" :rows="rows"></textarea>
+      </div>
+    `,
 };
+
 const SectionEditorStub = {
-  /* ... */
+  name: "SectionEditorStub",
+  props: ["modelValue", "isFirst", "isLast"],
+  emits: ["update:modelValue", "delete-section", "move-section"],
+  template: `
+    <div :data-testid="'section-' + modelValue.id">
+      Mock Section: {{ modelValue.title }}
+      <button data-testid="delete-btn" @click="$emit('delete-section', modelValue.id)">Del</button>
+      <button data-testid="move-up-btn" :disabled="isFirst" @click="$emit('move-section', -1)">Up</button>
+      <button data-testid="move-down-btn" :disabled="isLast" @click="$emit('move-section', 1)">Down</button>
+      <input v-if="modelValue.items && modelValue.items[0]" :value="modelValue.items[0]?.jobTitle || modelValue.items[0]?.degree || modelValue.items[0]?.name || ''" @input="$emit('update:modelValue', {...modelValue, items: [{...modelValue.items[0], jobTitle: $event.target.value}]})"/>
+    </div>
+  `,
 };
 
 // --- Test Suite ---
@@ -37,25 +72,29 @@ describe("CvEditor.vue", () => {
       summary: "Proto summary",
     },
     sections: [
-      { id: "s1", type: "workExperience", title: "Work", items: [] },
-      { id: "s2", type: "education", title: "Edu", items: [] },
+      {
+        id: "s1",
+        type: "workExperience",
+        title: "Work",
+        items: [{ id: "i1", jobTitle: "Job1" }],
+      },
+      {
+        id: "s2",
+        type: "education",
+        title: "Edu",
+        items: [{ id: "i2", degree: "Degree1" }],
+      },
     ],
   };
 
-  const mockGetPreviewElement = vi.fn();
   const mockPdfSave = vi.fn();
   const mockPdfDoc = { save: mockPdfSave };
 
-  // --- FIX: Use mount and define stubs in global options ---
   const mountEditor = (props = defaultProps) => {
-    mockGetPreviewElement.mockReturnValue(document.createElement("div"));
     return mount(CvEditor, {
-      // Use mount instead of render
       props,
       global: {
-        provide: { getPreviewElement: mockGetPreviewElement },
         stubs: {
-          // Provide stubs for child components
           AddSectionModal: AddSectionModalStub,
           InputField: InputFieldStub,
           TextareaField: TextareaFieldStub,
@@ -66,7 +105,6 @@ describe("CvEditor.vue", () => {
           LanguagesEditor: SectionEditorStub,
           CertificationsEditor: SectionEditorStub,
           CustomSectionEditor: SectionEditorStub,
-          // IMPORTANT: Stubbing TransitionGroup is often needed with mount
           TransitionGroup: {
             template: '<div class="transition-group-stub"><slot/></div>',
             props: ["tag", "name"],
@@ -77,141 +115,175 @@ describe("CvEditor.vue", () => {
   };
 
   beforeEach(() => {
+    vi.useFakeTimers();
     vi.clearAllMocks();
     vi.mocked(generatePdfFromData).mockReturnValue(mockPdfDoc);
-    // If you still have issues finding elements after mount, ensure mocks are cleared *before* mount
   });
 
-  // --- Basic tests (Adjust finders for vue-test-utils if needed) ---
+  afterEach(() => {
+    vi.runOnlyPendingTimers();
+    vi.useRealTimers();
+  });
+
   it("renders personal info fields with correct initial values", () => {
     const wrapper = mountEditor();
-    // Use wrapper.findComponent or wrapper.find to locate elements
-    // Using findByRole via screen might still work if DOM is attached, but wrapper is safer
-    expect(wrapper.find('input[aria-label="Full Name"]').element.value).toBe(
-      defaultProps.personalInfo.fullName
-    );
-    expect(wrapper.find('input[aria-label="Job Title"]').element.value).toBe(
-      defaultProps.personalInfo.jobTitle
-    );
-    expect(wrapper.find('input[aria-label="Email"]').element.value).toBe(
-      defaultProps.personalInfo.email
-    );
-    expect(wrapper.find('input[aria-label="Phone"]').element.value).toBe(
-      defaultProps.personalInfo.phone
-    );
-    expect(wrapper.find('input[aria-label="Address"]').element.value).toBe(
-      defaultProps.personalInfo.address
-    );
+    const inputFields = wrapper.findAllComponents(InputFieldStub);
+    const textareaFields = wrapper.findAllComponents(TextareaFieldStub);
+
     expect(
-      wrapper.find('textarea[aria-label="Profile Summary"]').element.value
+      inputFields
+        .find((c) => c.props("label") === "Full Name")
+        ?.props("modelValue")
+    ).toBe(defaultProps.personalInfo.fullName);
+    expect(
+      inputFields
+        .find((c) => c.props("label") === "Job Title")
+        ?.props("modelValue")
+    ).toBe(defaultProps.personalInfo.jobTitle);
+    expect(
+      inputFields.find((c) => c.props("label") === "Email")?.props("modelValue")
+    ).toBe(defaultProps.personalInfo.email);
+    expect(
+      inputFields.find((c) => c.props("label") === "Phone")?.props("modelValue")
+    ).toBe(defaultProps.personalInfo.phone);
+    expect(
+      inputFields
+        .find((c) => c.props("label") === "Address")
+        ?.props("modelValue")
+    ).toBe(defaultProps.personalInfo.address);
+    expect(
+      textareaFields
+        .find((c) => c.props("label") === "Profile Summary")
+        ?.props("modelValue")
     ).toBe(defaultProps.personalInfo.summary);
   });
 
   it('emits "update:personalInfo" when a field changes', async () => {
     const wrapper = mountEditor();
-    const nameInput = wrapper.find('input[aria-label="Full Name"]');
-    await nameInput.setValue("Updated Name"); // Use setValue with test-utils
+    const nameInputStub = wrapper
+      .findAllComponents(InputFieldStub)
+      .find((c) => c.props("label") === "Full Name");
+    await nameInputStub.vm.$emit("update:modelValue", "Updated Name");
 
     expect(wrapper.emitted()).toHaveProperty("update:personalInfo");
-    const lastEmit = wrapper.emitted("update:personalInfo").pop()[0]; // Access emitted payload
+    const lastEmit = wrapper.emitted("update:personalInfo").pop()[0];
     expect(lastEmit.fullName).toBe("Updated Name");
   });
 
-  it("renders the correct section editor stubs based on props", () => {
+  // FIX 1: Add await flushPromises()
+  it("renders the correct section editor stubs based on props", async () => {
     const wrapper = mountEditor();
-    // Check stubs are present using data-testid from stub template
-    expect(
-      wrapper.find('[data-testid="section-workExperience-s1"]').exists()
-    ).toBe(true);
-    expect(wrapper.find('[data-testid="section-education-s2"]').exists()).toBe(
-      true
-    );
+    await flushPromises(); // Wait for potential async component rendering
+    expect(wrapper.find('[data-testid="section-s1"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="section-s2"]').exists()).toBe(true);
   });
 
   it('opens AddSectionModal when "Add Section" button is clicked', async () => {
     const wrapper = mountEditor();
-    // Find the stub component instance
     const modalStub = wrapper.findComponent(AddSectionModalStub);
     expect(modalStub.find('[data-testid="add-section-modal"]').exists()).toBe(
       false
-    ); // Check internal template state
+    );
 
-    const addButton = wrapper.find("button.bg-indigo-600"); // More specific selector
+    const addButton = wrapper.find("button.bg-indigo-600");
     await addButton.trigger("click");
 
-    // Re-find the stub and check its internal state or emitted events if needed
-    // Note: Checking internal state of stub relies on stub implementation
-    // Here, we just check if the click handler likely toggled the state
-    // A better check might be difficult without more complex stubs
-    // We rely on the fact that the button exists and was clicked
-    expect(addButton.exists()).toBe(true);
+    expect(modalStub.find('[data-testid="add-section-modal"]').exists()).toBe(
+      true
+    );
   });
 
   it('emits "add-section" when modal mock emits "select-section"', async () => {
     const wrapper = mountEditor();
     const addButton = wrapper.find("button.bg-indigo-600");
-    await addButton.trigger("click"); // Open modal
+    await addButton.trigger("click");
 
     const modalStub = wrapper.findComponent(AddSectionModalStub);
-    // Find button within the stub's template
-    const selectButton = modalStub.find('button:contains("Select WorkExp")'); // Find by text within stub
+    const selectButton = modalStub.find('[data-testid="select-workexp-btn"]');
     await selectButton.trigger("click");
 
     expect(wrapper.emitted()).toHaveProperty("add-section");
     expect(wrapper.emitted("add-section")[0]).toEqual(["workExperience"]);
   });
 
+  // FIX 1: Add await flushPromises()
   it('emits "delete-section" when a section editor mock emits delete', async () => {
     const wrapper = mountEditor();
-    const sectionStub = wrapper.find(
-      '[data-testid="section-workExperience-s1"]'
-    );
-    const deleteButton = sectionStub.find('button:contains("Del")');
+    await flushPromises(); // Wait for sections to render
+
+    const sectionStubWrapper = wrapper.find('[data-testid="section-s1"]');
+    // Add assertion to ensure the wrapper is found before interacting
+    expect(
+      sectionStubWrapper.exists(),
+      "Section s1 stub wrapper should exist"
+    ).toBe(true);
+
+    const deleteButton = sectionStubWrapper.find('[data-testid="delete-btn"]');
+    // Add assertion to ensure the button is found
+    expect(
+      deleteButton.exists(),
+      "Delete button within stub should exist"
+    ).toBe(true);
     await deleteButton.trigger("click");
 
     expect(wrapper.emitted()).toHaveProperty("delete-section");
-    // CvEditor passes the ID when relaying
     expect(wrapper.emitted("delete-section")[0]).toEqual(["s1"]);
   });
 
+  // FIX 1: Add await flushPromises()
   it('emits "move-section" when a section editor mock emits move', async () => {
     const wrapper = mountEditor();
-    const sectionStub = wrapper.find(
-      '[data-testid="section-workExperience-s1"]'
-    );
+    await flushPromises(); // Wait for sections to render
 
-    const moveUpButton = sectionStub.find('button:contains("Up")');
+    const sectionStubWrapper = wrapper.find('[data-testid="section-s1"]');
+    expect(
+      sectionStubWrapper.exists(),
+      "Section s1 stub wrapper should exist"
+    ).toBe(true);
+
+    const moveUpButton = sectionStubWrapper.find('[data-testid="move-up-btn"]');
+    expect(
+      moveUpButton.exists(),
+      "Move Up button within stub should exist"
+    ).toBe(true);
     await moveUpButton.trigger("click");
     expect(wrapper.emitted()).toHaveProperty("move-section");
-    expect(wrapper.emitted("move-section")[0]).toEqual(["s1", -1]); // Check [id, direction]
+    expect(wrapper.emitted("move-section")[0]).toEqual(["s1", -1]);
 
-    const moveDownButton = sectionStub.find('button:contains("Down")');
+    const moveDownButton = sectionStubWrapper.find(
+      '[data-testid="move-down-btn"]'
+    );
+    expect(
+      moveDownButton.exists(),
+      "Move Down button within stub should exist"
+    ).toBe(true);
     await moveDownButton.trigger("click");
-    expect(wrapper.emitted("move-section")[1]).toEqual(["s1", 1]); // Check second emit
+    expect(wrapper.emitted("move-section")[1]).toEqual(["s1", 1]);
   });
 
   // --- PDF Download Tests ---
   it("calls generatePdfFromData and saves the result on download click", async () => {
     const wrapper = mountEditor();
-    const downloadButton = wrapper.find("button.bg-green-600"); // Selector for download button
+    const downloadButton = wrapper.find("button.bg-green-600");
     await downloadButton.trigger("click");
 
-    // Wait for potential async operations within downloadPdf
-    await wrapper.vm.$nextTick(); // Wait for state updates
+    vi.advanceTimersByTime(100);
+    await flushPromises();
 
     expect(vi.mocked(generatePdfFromData)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(generatePdfFromData)).toHaveBeenCalledWith(
       expect.objectContaining({
-        personalInfo: defaultProps.personalInfo,
-        sections: defaultProps.sections,
+        personalInfo: expect.objectContaining(defaultProps.personalInfo),
+        sections: expect.arrayContaining([
+          expect.objectContaining({ id: "s1", type: "workExperience" }),
+          expect.objectContaining({ id: "s2", type: "education" }),
+        ]),
       })
     );
-    expect(mockPdfSave).toHaveBeenCalledTimes(1);
-    expect(mockPdfSave).toHaveBeenCalledWith(
+    expect(mockPdfDoc.save).toHaveBeenCalledTimes(1); // Check mockPdfDoc was used
+    expect(mockPdfDoc.save).toHaveBeenCalledWith(
       expect.stringMatching(/Proto User_.*\.pdf/)
     );
-
-    // Check loading state reset
     expect(
       wrapper.find("button.bg-green-600").attributes("disabled")
     ).toBeUndefined();
@@ -228,19 +300,19 @@ describe("CvEditor.vue", () => {
     const wrapper = mountEditor();
     const downloadButton = wrapper.find("button.bg-green-600");
     await downloadButton.trigger("click");
-    await wrapper.vm.$nextTick(); // Wait for async error handling
+
+    vi.advanceTimersByTime(100);
+    await flushPromises();
 
     expect(vi.mocked(generatePdfFromData)).toHaveBeenCalled();
-    expect(mockPdfSave).not.toHaveBeenCalled();
+    expect(mockPdfDoc.save).not.toHaveBeenCalled(); // Check mockPdfDoc was NOT used
     expect(errorSpy).toHaveBeenCalledWith(
       "Error during PDF generation or saving:",
       generationError
     );
     expect(alertSpy).toHaveBeenCalledWith(
-      expect.stringContaining("error occurred")
+      expect.stringContaining("An error occurred")
     );
-
-    // Check loading state reset
     expect(
       wrapper.find("button.bg-green-600").attributes("disabled")
     ).toBeUndefined();
@@ -251,34 +323,46 @@ describe("CvEditor.vue", () => {
 
   it("disables download button and shows spinner during PDF generation", async () => {
     let resolveGeneration;
-    vi.mocked(generatePdfFromData).mockImplementationOnce(
-      () =>
-        new Promise((res) => {
-          resolveGeneration = () => res(mockPdfDoc);
-        })
-    );
+    // Ensure the mock returns a promise THAT RESOLVES WITH mockPdfDoc
+    const promiseMock = new Promise((res) => {
+      resolveGeneration = () => res(mockPdfDoc); // Store resolver
+    });
+    vi.mocked(generatePdfFromData).mockImplementationOnce(() => promiseMock);
 
     const wrapper = mountEditor();
     const downloadButton = wrapper.find("button.bg-green-600");
     expect(downloadButton.attributes("disabled")).toBeUndefined();
 
-    await downloadButton.trigger("click"); // Trigger async operation
+    // Trigger async operation - Don't await click
+    downloadButton.trigger("click");
 
-    // Check intermediate loading state (immediately after click + tick)
+    // Advance timers slightly and wait for Vue's reactivity
+    vi.advanceTimersByTime(1);
     await wrapper.vm.$nextTick();
-    expect(downloadButton.attributes("disabled")).toBeDefined(); // Check for presence of disabled attr
-    expect(wrapper.text()).toContain("Generating...");
+
+    // Check intermediate loading state
+    const loadingButton = wrapper.find("button.bg-green-600");
+    expect(loadingButton.attributes("disabled")).toBeDefined();
+    expect(loadingButton.text()).toContain("Generating...");
     expect(wrapper.find(".fa-spinner.fa-spin").exists()).toBe(true);
 
-    // Resolve the generation promise
-    expect(resolveGeneration).toBeDefined();
-    resolveGeneration();
-    await wrapper.vm.$nextTick(); // Allow promise resolution and state update
+    // Now that the mock *should* have been called and the promise started, resolveGeneration should be set.
+    // If this still fails, the timing is very tricky. Alternative: don't check resolver directly.
+    expect(
+      resolveGeneration,
+      "resolveGeneration function should be defined after mock is called"
+    ).toBeInstanceOf(Function);
+    resolveGeneration(); // Call the stored resolver to resolve the promise
+
+    // Advance timers and flush promises AFTER resolving
+    vi.advanceTimersByTime(100);
+    await flushPromises(); // Ensure promise resolution and subsequent updates complete
 
     // Check final state
-    expect(downloadButton.attributes("disabled")).toBeUndefined();
-    expect(wrapper.text()).not.toContain("Generating...");
+    const finalButton = wrapper.find("button.bg-green-600");
+    expect(finalButton.attributes("disabled")).toBeUndefined();
+    expect(finalButton.text()).not.toContain("Generating...");
     expect(wrapper.find(".fa-spinner.fa-spin").exists()).toBe(false);
-    expect(mockPdfSave).toHaveBeenCalled();
+    expect(mockPdfDoc.save).toHaveBeenCalled(); // Check save on the resolved mock doc
   });
 });

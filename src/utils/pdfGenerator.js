@@ -39,12 +39,13 @@ const COLOR_LIGHT_GRAY = "#cbd5e1"; // Gray-300 (For divider lines)
 
 // Layout
 const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
-const DATE_COLUMN_WIDTH = 65; // Width allocated for the date on the right - Adjusted
+const DATE_COLUMN_WIDTH = 65; // Width allocated for the date on the right
 const RIGHT_ALIGN_X = PAGE_WIDTH - MARGIN; // Right edge for alignment
 const MAIN_CONTENT_WIDTH = CONTENT_WIDTH - DATE_COLUMN_WIDTH - 10; // Width for left content when date is present
 
 export function generatePdfFromData(cvData) {
-  console.log("Generating PDF with data:", JSON.stringify(cvData, null, 2)); // Log incoming data
+  console.log("--- PDF GENERATOR START (Applying Contact Center Fix) ---");
+  console.log("Received cvData:", JSON.stringify(cvData, null, 2));
 
   const pdf = new jsPDF({
     orientation: "portrait",
@@ -57,20 +58,23 @@ export function generatePdfFromData(cvData) {
   // --- Helper Functions ---
 
   function checkAddPage(neededHeight = FONT_SIZE_BODY * LINE_HEIGHT_NORMAL) {
-    if (currentY + neededHeight > PAGE_HEIGHT - MARGIN) {
+    const checkHeight = Math.max(neededHeight, FONT_SIZE_BODY);
+    if (currentY + checkHeight > PAGE_HEIGHT - MARGIN) {
       console.log(
-        `Adding Page: currentY=${currentY}, neededHeight=${neededHeight}, limit=${
+        `%cADDING PAGE: currentY=${currentY.toFixed(
+          2
+        )}, needed=${neededHeight.toFixed(2)}, limit=${(
           PAGE_HEIGHT - MARGIN
-        }`
+        ).toFixed(2)}`,
+        "color: orange; font-weight: bold;"
       );
       pdf.addPage();
-      currentY = MARGIN; // Reset Y after adding page
-      return true; // Page was added
+      currentY = MARGIN;
+      return true;
     }
-    return false; // Page was not added
+    return false;
   }
 
-  // drawWrappedText: Returns the Y coordinate *after* the drawn text block
   function drawWrappedText(text, x, y, maxWidth, options = {}) {
     const {
       fontSize = FONT_SIZE_BODY,
@@ -81,139 +85,171 @@ export function generatePdfFromData(cvData) {
     } = options;
 
     if (!text || String(text).trim() === "") {
+      console.log(`  Skipping empty text block passed at Y=${y.toFixed(2)}`);
       return y;
     }
 
-    // Set font for accurate splitting and drawing
     pdf.setFont(FONT_FAMILY, fontStyle);
     pdf.setFontSize(fontSize);
     pdf.setTextColor(color);
-
     const lines = pdf.splitTextToSize(String(text), maxWidth);
+    if (lines.length === 0) {
+      console.warn(
+        `  splitTextToSize resulted in 0 lines for text: "${text.substring(
+          0,
+          30
+        )}..."`
+      );
+      return y;
+    }
     const singleLineHeight =
       pdf.getTextDimensions("M", { fontSize: fontSize }).h * lineHeightFactor;
     const neededHeight = lines.length * singleLineHeight;
 
-    // Check if the *entire block* fits
     const pageAdded = checkAddPage(neededHeight);
-    const drawY = pageAdded ? MARGIN : y; // Use MARGIN if new page started
+    const drawY = pageAdded ? currentY : y;
+
+    console.log(
+      `  Drawing text "${lines[0].substring(0, 20)}..." (${
+        lines.length
+      } lines) at Y=${drawY.toFixed(2)} / X=${x.toFixed(
+        2
+      )} (passed Y=${y.toFixed(2)}, pageAdded=${pageAdded})`
+    );
 
     pdf.text(lines, x, drawY, {
       align: align,
       lineHeightFactor: lineHeightFactor,
       maxWidth: maxWidth,
     });
-
-    // Return Y position below the drawn text
-    return drawY + neededHeight; // Simpler calculation: start Y + total height
+    const endY = drawY + neededHeight;
+    console.log(`  -> Text end Y=${endY.toFixed(2)}`);
+    return endY;
   }
 
   function drawLine(y, color = COLOR_LIGHT_GRAY, thickness = LINE_THICKNESS) {
-    const needed = thickness + 4; // Include buffer
-    checkAddPage(needed); // Check space BEFORE drawing
-    // If page added, currentY is reset, use THAT for drawing
-    const drawY = checkAddPage(0) ? MARGIN : y; // Re-check doesn't add page, just gets currentY status
+    const needed = thickness + 4;
+    const pageAdded = checkAddPage(needed);
+    const drawY = pageAdded ? currentY : y;
+    console.log(
+      `  Drawing line at Y=${drawY.toFixed(2)} (passed Y=${y.toFixed(
+        2
+      )}, pageAdded=${pageAdded})`
+    );
     pdf.setLineWidth(thickness);
     pdf.setDrawColor(color);
     pdf.line(MARGIN, drawY, PAGE_WIDTH - MARGIN, drawY);
-    return drawY + thickness; // Return Y position *after* the line
+    const endY = drawY + thickness;
+    console.log(`  -> Line end Y=${endY.toFixed(2)}`);
+    return endY;
   }
 
   // --- Draw Content ---
 
-  // 1. Header Section (Name, Title, Contact) - Final Balanced Spacing
-  console.log("Drawing Header - Start Y:", currentY);
-  let headerEndY = currentY; // Track Y position *within* the header drawing
+  // 1. Header Section - Using pdf.text for Name/Title, drawWrappedText for Contact
+  console.log(
+    `%c--- Drawing Header --- START Y: ${currentY.toFixed(2)}`,
+    "color: blue; font-weight: bold;"
+  );
 
-  const estHeaderHeight = FONT_SIZE_H1 + FONT_SIZE_H2 + FONT_SIZE_SMALL + 20; // Rough estimate
+  const estHeaderHeight =
+    (FONT_SIZE_H1 + FONT_SIZE_H2 + FONT_SIZE_SMALL) * LINE_HEIGHT_TIGHT + 20;
   checkAddPage(estHeaderHeight);
-  headerEndY = checkAddPage(0) ? MARGIN : currentY; // Use potentially updated Y if page added
+  currentY = checkAddPage(0) ? MARGIN : currentY;
 
-  // Draw Full Name
+  // Draw Full Name using pdf.text
   if (cvData.personalInfo?.fullName) {
-    checkAddPage(FONT_SIZE_H1 * LINE_HEIGHT_TIGHT); // Check for this element
-    headerEndY = checkAddPage(0) ? MARGIN : headerEndY; // Use potentially updated Y
+    checkAddPage(FONT_SIZE_H1 * LINE_HEIGHT_TIGHT);
+    currentY = checkAddPage(0) ? MARGIN : currentY;
 
+    console.log(`  Drawing Name (pdf.text) - Before Y: ${currentY.toFixed(2)}`);
     pdf.setFont(FONT_FAMILY, "bold");
     pdf.setFontSize(FONT_SIZE_H1);
     pdf.setTextColor(COLOR_TEXT);
-    pdf.text(cvData.personalInfo.fullName, PAGE_WIDTH / 2, headerEndY, {
+    pdf.text(cvData.personalInfo.fullName, PAGE_WIDTH / 2, currentY, {
       align: "center",
     });
-    headerEndY +=
+    currentY +=
       pdf.getTextDimensions("M", { fontSize: FONT_SIZE_H1 }).h *
       LINE_HEIGHT_TIGHT;
-    headerEndY += 3; // Small gap after name
-    console.log("  After Name Y:", headerEndY);
+    currentY += 3; // Small gap after name
+    console.log(`  Drawing Name - After Y (+gap): ${currentY.toFixed(2)}`);
   }
 
-  // Draw Job Title
+  // Draw Job Title using pdf.text
   if (cvData.personalInfo?.jobTitle) {
-    checkAddPage(FONT_SIZE_H2 * LINE_HEIGHT_TIGHT); // Check for this element
-    headerEndY = checkAddPage(0) ? MARGIN : headerEndY; // Use potentially updated Y
+    checkAddPage(FONT_SIZE_H2 * LINE_HEIGHT_TIGHT);
+    currentY = checkAddPage(0) ? MARGIN : currentY;
 
+    console.log(
+      `  Drawing Title (pdf.text) - Before Y: ${currentY.toFixed(2)}`
+    );
     pdf.setFont(FONT_FAMILY, "normal");
     pdf.setFontSize(FONT_SIZE_H2);
     pdf.setTextColor(COLOR_TEXT);
-    pdf.text(cvData.personalInfo.jobTitle, PAGE_WIDTH / 2, headerEndY, {
+    pdf.text(cvData.personalInfo.jobTitle, PAGE_WIDTH / 2, currentY, {
       align: "center",
     });
-    headerEndY +=
+    currentY +=
       pdf.getTextDimensions("M", { fontSize: FONT_SIZE_H2 }).h *
       LINE_HEIGHT_TIGHT;
-    headerEndY += 6; // Adjusted space after Job Title
-    console.log("  After Title Y:", headerEndY);
+    currentY += 6; // Adjusted space after Job Title
+    console.log(`  Drawing Title - After Y (+gap): ${currentY.toFixed(2)}`);
   }
 
-  // Draw Contact Info
+  // Draw Contact Info using drawWrappedText with centered X coordinate
   const contactInfoParts = [
     cvData.personalInfo?.phone,
     cvData.personalInfo?.address,
     cvData.personalInfo?.email,
-  ].filter(Boolean); // Filter out null/empty strings
+  ].filter(Boolean);
 
   if (contactInfoParts.length > 0) {
     const contactInfo = contactInfoParts.join("  \u2022  ");
+    console.log(
+      `  Drawing Contact (drawWrappedText) - Before Y: ${currentY.toFixed(2)}`
+    );
     const estContactHeight =
       pdf.splitTextToSize(contactInfo, CONTENT_WIDTH).length *
       FONT_SIZE_SMALL *
       LINE_HEIGHT_TIGHT;
-    checkAddPage(estContactHeight); // Check for this element
-    headerEndY = checkAddPage(0) ? MARGIN : headerEndY; // Use potentially updated Y
+    checkAddPage(estContactHeight);
+    currentY = checkAddPage(0) ? MARGIN : currentY;
 
-    pdf.setFont(FONT_FAMILY, "normal");
-    pdf.setFontSize(FONT_SIZE_SMALL);
-    pdf.setTextColor(COLOR_GRAY);
-
-    // Use drawWrappedText for centering AND potential wrapping
-    headerEndY = drawWrappedText(
+    // *** Use PAGE_WIDTH / 2 for the x coordinate to center ***
+    currentY = drawWrappedText(
       contactInfo,
-      MARGIN,
-      headerEndY,
+      PAGE_WIDTH / 2,
+      currentY,
       CONTENT_WIDTH,
       {
         fontSize: FONT_SIZE_SMALL,
         color: COLOR_GRAY,
         align: "center",
-        lineHeightFactor: LINE_HEIGHT_TIGHT, // Use tight for single line feel
+        lineHeightFactor: LINE_HEIGHT_TIGHT,
       }
     );
+    // *** END CHANGE ***
 
-    headerEndY += 8; // Adjusted space AFTER contact block
-    console.log("  After Contact Y:", headerEndY);
+    currentY += 8; // Adjusted space AFTER contact block for balance
+    console.log(`  Drawing Contact - After Y (+gap): ${currentY.toFixed(2)}`);
   } else {
-    // If NO contact info, add some space after Title before Profile starts
-    headerEndY += 10; // Fallback spacing if contact info is missing
+    currentY += 10; // Fallback spacing if contact info is missing
+    console.log(
+      `  No Contact Info - Added fallback space. Y: ${currentY.toFixed(2)}`
+    );
   }
-
-  // Update the main currentY *after* the entire header block is drawn
-  currentY = headerEndY;
-  console.log("Drawing Header - End Y:", currentY);
+  console.log(
+    `%c--- Drawing Header --- END Y: ${currentY.toFixed(2)}`,
+    "color: blue; font-weight: bold;"
+  );
 
   // 2. Profile Section
   if (cvData.personalInfo?.summary) {
-    console.log("Drawing Profile Section - Start Y:", currentY);
-    // No extra vertical space added here - controlled by header spacing above
+    console.log(
+      `%c--- Drawing Profile --- START Y: ${currentY.toFixed(2)}`,
+      "color: green; font-weight: bold;"
+    );
 
     checkAddPage(
       FONT_SIZE_H3 +
@@ -222,20 +258,26 @@ export function generatePdfFromData(cvData) {
         SECTION_LINE_MARGIN_BOTTOM +
         FONT_SIZE_BODY * 2
     );
-    currentY = checkAddPage(0) ? MARGIN : currentY; // Use potentially updated Y
+    currentY = checkAddPage(0) ? MARGIN : currentY;
 
-    // Draw Profile Title
+    console.log(`  Drawing Profile Title - Before Y: ${currentY.toFixed(2)}`);
     pdf.setFont(FONT_FAMILY, "bold");
     pdf.setFontSize(FONT_SIZE_H3);
     pdf.setTextColor(COLOR_TEXT);
     pdf.text("PROFILE", MARGIN, currentY);
-    currentY += FONT_SIZE_H3 + SECTION_TITLE_MARGIN_BOTTOM; // Add space below text
+    currentY += FONT_SIZE_H3 + SECTION_TITLE_MARGIN_BOTTOM;
+    console.log(
+      `  Drawing Profile Title - After Y (+gap): ${currentY.toFixed(2)}`
+    );
 
-    // Draw Line
-    currentY = drawLine(currentY); // Draw line updates Y
-    currentY += SECTION_LINE_MARGIN_BOTTOM; // Space after line
+    console.log(`  Drawing Profile Line - Before Y: ${currentY.toFixed(2)}`);
+    currentY = drawLine(currentY);
+    currentY += SECTION_LINE_MARGIN_BOTTOM;
+    console.log(
+      `  Drawing Profile Line - After Y (+gap): ${currentY.toFixed(2)}`
+    );
 
-    // Draw Summary Text
+    console.log(`  Drawing Profile Summary - Before Y: ${currentY.toFixed(2)}`);
     currentY = drawWrappedText(
       cvData.personalInfo.summary,
       MARGIN,
@@ -243,36 +285,58 @@ export function generatePdfFromData(cvData) {
       CONTENT_WIDTH,
       { fontSize: FONT_SIZE_BODY, lineHeightFactor: LINE_HEIGHT_NORMAL }
     );
-    currentY += PARAGRAPH_SPACING; // Space after paragraph
-    console.log("Drawing Profile Section - End Y:", currentY);
+    currentY += PARAGRAPH_SPACING;
+    console.log(
+      `  Drawing Profile Summary - After Y (+gap): ${currentY.toFixed(2)}`
+    );
+    console.log(
+      `%c--- Drawing Profile --- END Y: ${currentY.toFixed(2)}`,
+      "color: green; font-weight: bold;"
+    );
   }
 
-  // 3. Dynamic Sections (Work Experience, Education, Skills, etc.)
-  console.log("Processing Dynamic Sections - Start Y:", currentY);
+  // 3. Dynamic Sections
+  console.log(
+    `%c--- Processing Dynamic Sections --- START Y: ${currentY.toFixed(2)}`,
+    "color: purple; font-weight: bold;"
+  );
   if (cvData.sections && Array.isArray(cvData.sections)) {
     cvData.sections.forEach((section, sectionIndex) => {
       console.log(
-        ` Processing Section ${sectionIndex}: ${section.title} (Type: ${section.type})`
+        `%c Processing Section ${sectionIndex}: ${section.title} (Type: ${
+          section.type
+        }) - START Y: ${currentY.toFixed(2)}`,
+        "color: purple;"
       );
       const validItems = (section.items || []).filter((item) => {
         if (section.type === "workExperience" && !item.jobTitle) return false;
         if (section.type === "education" && !item.degree) return false;
-        if (section.type === "skills" && !item.name) return false;
-        if (section.type === "languages" && !item.name) return false;
+        if (
+          section.type === "skills" &&
+          (!item.name || String(item.name).trim() === "")
+        )
+          return false;
+        if (
+          section.type === "languages" &&
+          (!item.name || String(item.name).trim() === "")
+        )
+          return false;
         if (section.type === "projects" && !item.name) return false;
         if (section.type === "certifications" && !item.name) return false;
         if (section.type === "custom" && !item.title && !item.description)
           return false;
-        return true; // Assume valid if required fields seem present
+        return true;
       });
+      console.log(
+        `   Section "${section.title}" - Valid items count: ${validItems.length}`
+      );
 
       if (validItems.length === 0) {
         console.log(`  Skipping empty or invalid section: ${section.title}`);
-        return; // Skip sections with no valid items
+        return;
       }
 
-      currentY += SECTION_SPACING; // Space before section title
-
+      currentY += SECTION_SPACING;
       checkAddPage(
         FONT_SIZE_H3 +
           SECTION_TITLE_MARGIN_BOTTOM +
@@ -280,18 +344,26 @@ export function generatePdfFromData(cvData) {
           SECTION_LINE_MARGIN_BOTTOM +
           FONT_SIZE_BODY * LINE_HEIGHT_NORMAL * 2
       );
-      currentY = checkAddPage(0) ? MARGIN : currentY; // Use potentially updated Y
+      currentY = checkAddPage(0) ? MARGIN : currentY;
 
-      // Draw Section Title
+      console.log(
+        `   Drawing Section Title - Before Y: ${currentY.toFixed(2)}`
+      );
       pdf.setFont(FONT_FAMILY, "bold");
       pdf.setFontSize(FONT_SIZE_H3);
       pdf.setTextColor(COLOR_TEXT);
       pdf.text(section.title.toUpperCase(), MARGIN, currentY);
       currentY += FONT_SIZE_H3 + SECTION_TITLE_MARGIN_BOTTOM;
+      console.log(
+        `   Drawing Section Title - After Y (+gap): ${currentY.toFixed(2)}`
+      );
 
-      // Draw Divider Line
+      console.log(`   Drawing Section Line - Before Y: ${currentY.toFixed(2)}`);
       currentY = drawLine(currentY);
       currentY += SECTION_LINE_MARGIN_BOTTOM;
+      console.log(
+        `   Drawing Section Line - After Y (+gap): ${currentY.toFixed(2)}`
+      );
 
       // --- Render Items ---
       switch (section.type) {
@@ -301,40 +373,45 @@ export function generatePdfFromData(cvData) {
         case "certifications":
         case "custom":
           validItems.forEach((item, index) => {
+            console.log(
+              `    Drawing Item ${index} (Type: ${
+                section.type
+              }) - Before Y: ${currentY.toFixed(2)}`
+            );
             if (index > 0) {
-              currentY += ITEM_SPACING; // Space between items
+              currentY += ITEM_SPACING;
             }
-            const estItemHeight = FONT_SIZE_BODY * LINE_HEIGHT_NORMAL * 4; // Estimate item height
+            const estItemHeight = FONT_SIZE_BODY * LINE_HEIGHT_NORMAL * 4;
             checkAddPage(estItemHeight);
-            currentY = checkAddPage(0) ? MARGIN : currentY; // Use potentially updated Y
+            currentY = checkAddPage(0) ? MARGIN : currentY;
 
             const itemStartY = currentY;
             let leftContentEndY = itemStartY;
-
-            // Determine date text
             let dateText = "";
             if (
               section.type === "workExperience" ||
               section.type === "projects"
-            ) {
+            )
               dateText = item.dateRange || item.date || "";
-            } else if (section.type === "education") {
+            else if (section.type === "education")
               dateText =
                 item.graduationDate || item.dateRange || item.date || "";
-            } else if (section.type === "certifications") {
-              // Combine issued/expiration if available? Or just pick one.
+            else if (section.type === "certifications")
               dateText =
                 item.dateIssued || item.expirationDate || item.date || "";
-            }
             const hasDate = !!dateText;
             const itemContentMaxWidth = hasDate
               ? MAIN_CONTENT_WIDTH
               : CONTENT_WIDTH;
 
-            // Primary Title (Job Title, Degree, Project Name, etc.)
             const primaryTitle =
               item.jobTitle || item.degree || item.name || item.title || "";
             if (primaryTitle) {
+              console.log(
+                `      Drawing Primary Title - Before Y: ${leftContentEndY.toFixed(
+                  2
+                )}`
+              );
               leftContentEndY = drawWrappedText(
                 primaryTitle,
                 MARGIN,
@@ -346,14 +423,22 @@ export function generatePdfFromData(cvData) {
                   lineHeightFactor: LINE_HEIGHT_TIGHT,
                 }
               );
+              console.log(
+                `      Drawing Primary Title - After Y: ${leftContentEndY.toFixed(
+                  2
+                )}`
+              );
             }
 
-            // Secondary Title (Company, Institution, Issuer etc.)
             const secondaryTitle =
               item.company || item.institution || item.issuer || "";
             if (secondaryTitle && section.type !== "custom") {
-              // Example: Don't show for custom sections
               if (primaryTitle) leftContentEndY += SUB_ITEM_SPACING;
+              console.log(
+                `      Drawing Secondary Title - Before Y: ${leftContentEndY.toFixed(
+                  2
+                )}`
+              );
               leftContentEndY = drawWrappedText(
                 secondaryTitle,
                 MARGIN,
@@ -365,13 +450,22 @@ export function generatePdfFromData(cvData) {
                   lineHeightFactor: LINE_HEIGHT_TIGHT,
                 }
               );
+              console.log(
+                `      Drawing Secondary Title - After Y: ${leftContentEndY.toFixed(
+                  2
+                )}`
+              );
             }
 
-            // Description / Details / Thesis / etc.
             const description = item.description || item.details || "";
             if (description) {
               if (primaryTitle || secondaryTitle)
                 leftContentEndY += DESCRIPTION_TOP_MARGIN;
+              console.log(
+                `      Drawing Description - Before Y: ${leftContentEndY.toFixed(
+                  2
+                )}`
+              );
               leftContentEndY = drawWrappedText(
                 description,
                 MARGIN,
@@ -382,11 +476,20 @@ export function generatePdfFromData(cvData) {
                   lineHeightFactor: LINE_HEIGHT_NORMAL,
                 }
               );
+              console.log(
+                `      Drawing Description - After Y: ${leftContentEndY.toFixed(
+                  2
+                )}`
+              );
             }
 
-            // Credential ID (Certifications specific)
             if (section.type === "certifications" && item.credentialId) {
               leftContentEndY += SUB_ITEM_SPACING;
+              console.log(
+                `      Drawing Credential ID - Before Y: ${leftContentEndY.toFixed(
+                  2
+                )}`
+              );
               leftContentEndY = drawWrappedText(
                 `Credential ID: ${item.credentialId}`,
                 MARGIN,
@@ -398,25 +501,44 @@ export function generatePdfFromData(cvData) {
                   lineHeightFactor: LINE_HEIGHT_TIGHT,
                 }
               );
+              console.log(
+                `      Drawing Credential ID - After Y: ${leftContentEndY.toFixed(
+                  2
+                )}`
+              );
             }
 
-            // Right Column Date
             if (hasDate) {
-              checkAddPage(FONT_SIZE_SMALL); // Check space for date itself
-              const dateDrawY = checkAddPage(0) ? MARGIN : itemStartY; // Use itemStartY unless page break happened
+              console.log(
+                `      Drawing Date - Aligning to Y: ${itemStartY.toFixed(2)}`
+              );
+              checkAddPage(FONT_SIZE_SMALL);
+              const dateDrawY = checkAddPage(0)
+                ? currentY === MARGIN
+                  ? MARGIN
+                  : itemStartY
+                : itemStartY;
               pdf.setFont(FONT_FAMILY, "normal");
               pdf.setFontSize(FONT_SIZE_SMALL);
               pdf.setTextColor(COLOR_GRAY);
               pdf.text(dateText, RIGHT_ALIGN_X, dateDrawY, { align: "right" });
+              console.log(
+                `      Drawing Date - Drawn at Y: ${dateDrawY.toFixed(2)}`
+              );
             }
-
-            // Update main Y position
             currentY = leftContentEndY;
+            console.log(
+              `    Drawing Item ${index} - End Y: ${currentY.toFixed(2)}`
+            );
           });
-          break; // End case for item-based sections
+          break;
 
         case "skills":
         case "languages":
+          console.log(
+            `    Processing Skills/Languages Section - Items:`,
+            validItems
+          );
           const itemTexts = validItems
             .map((item) => {
               const name = String(item.name || "").trim();
@@ -424,19 +546,25 @@ export function generatePdfFromData(cvData) {
                 section.type === "languages" && item.level
                   ? String(item.level).trim()
                   : "";
-              return name + (level ? ` (${level})` : "");
+              return name ? name + (level ? ` (${level})` : "") : null;
             })
             .filter(Boolean);
 
+          console.log(`    -> Mapped Texts: [${itemTexts.join(", ")}]`);
+
           if (itemTexts.length > 0) {
             const joinedText = itemTexts.join("  \u2022  ");
-            const estSkillHeight =
+            console.log(`    -> Joined Text: "${joinedText}"`);
+            const estListHeight =
               pdf.splitTextToSize(joinedText, CONTENT_WIDTH).length *
               FONT_SIZE_BODY *
               LINE_HEIGHT_NORMAL;
-            checkAddPage(estSkillHeight);
-            currentY = checkAddPage(0) ? MARGIN : currentY; // Use potentially updated Y
+            checkAddPage(estListHeight);
+            currentY = checkAddPage(0) ? MARGIN : currentY;
 
+            console.log(
+              `    Drawing Skills/Lang List - Before Y: ${currentY.toFixed(2)}`
+            );
             currentY = drawWrappedText(
               joinedText,
               MARGIN,
@@ -444,39 +572,63 @@ export function generatePdfFromData(cvData) {
               CONTENT_WIDTH,
               { fontSize: FONT_SIZE_BODY, lineHeightFactor: LINE_HEIGHT_NORMAL }
             );
-            currentY += PARAGRAPH_SPACING / 2; // Smaller gap after bullet list
+            currentY += PARAGRAPH_SPACING / 2;
+            console.log(
+              `    Drawing Skills/Lang List - After Y (+gap): ${currentY.toFixed(
+                2
+              )}`
+            );
+          } else {
+            console.warn(
+              `    Skipping Skills/Languages drawing - no valid item texts generated.`
+            );
           }
-          break; // End Skills/Languages case
+          break;
 
         default:
           console.warn(
             `PDF generator: Section type "${section.type}" rendering might be basic.`
           );
           validItems.forEach((item, index) => {
+            console.log(
+              `    Drawing Fallback Item ${index} - Before Y: ${currentY.toFixed(
+                2
+              )}`
+            );
             if (index > 0) currentY += ITEM_SPACING;
-            checkAddPage(FONT_SIZE_BODY * 3); // Estimate fallback item height
+            checkAddPage(FONT_SIZE_BODY * 3);
             currentY = checkAddPage(0) ? MARGIN : currentY;
+
             let tempY = currentY;
-            // Try to find a title-like field
             const itemTitle = item.title || item.name || "[Untitled Item]";
             tempY = drawWrappedText(itemTitle, MARGIN, tempY, CONTENT_WIDTH, {
               fontStyle: "bold",
             });
 
-            // Try to find a description-like field
             const itemDesc =
               item.description || item.details || "[No Description]";
             if (itemTitle) tempY += SUB_ITEM_SPACING;
             tempY = drawWrappedText(itemDesc, MARGIN, tempY, CONTENT_WIDTH);
 
             currentY = tempY + PARAGRAPH_SPACING / 2;
+            console.log(
+              `    Drawing Fallback Item ${index} - After Y (+gap): ${currentY.toFixed(
+                2
+              )}`
+            );
           });
       } // End switch
+      console.log(
+        `%c Processing Section ${sectionIndex}: ${
+          section.title
+        } - END Y: ${currentY.toFixed(2)}`,
+        "color: purple;"
+      );
     }); // End sections.forEach
   } else {
     console.warn("cvData.sections is missing or not an array.");
   }
 
-  console.log("PDF Generation Complete. Final Y:", currentY);
+  console.log("--- PDF Generation Complete --- Final Y:", currentY.toFixed(2));
   return pdf;
 }
