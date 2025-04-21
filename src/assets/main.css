@@ -1,0 +1,114 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Global base styles */
+body {
+  @apply bg-gray-50 text-gray-800 antialiased;
+}
+
+/* Section Add/Remove Transitions */
+.section-list-move, /* apply transition to moving elements */
+.section-list-enter-active,
+.section-list-leave-active {
+  transition: all 0.4s ease-out;
+}
+
+.section-list-enter-from,
+.section-list-leave-to {
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+/* ensure leaving items are taken out of layout flow so that moving
+   animations can be calculated correctly. */
+.section-list-leave-active {
+  position: absolute;
+  width: calc(100% - 3rem); /* Adjust based on BaseSectionWrapper padding */
+  z-index: 0; /* Keep it behind active elements */
+}
+
+/* Modal Transitions */
+.modal-fade-enter-active,
+.modal-fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+.modal-fade-enter-from,
+.modal-fade-leave-to {
+  opacity: 0;
+}
+.modal-fade-enter-active .modal-content,
+.modal-fade-leave-active .modal-content {
+  transition: transform 0.3s ease;
+}
+.modal-fade-enter-from .modal-content,
+.modal-fade-leave-to .modal-content {
+  transform: scale(0.95) translateY(-10px);
+}
+
+/* Preview Specific Styles */
+.preview-section-title {
+  @apply text-base font-semibold text-indigo-700 border-b border-indigo-200 pb-1 mb-3 uppercase tracking-wider;
+}
+.preview-render-area {
+  /* Ensure consistent styling for PDF capture */
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+  line-height: 1.5;
+  font-size: 14px; /* Base font size for preview */
+}
+.preview-render-area h1 {
+  font-size: 1.8rem;
+  line-height: 1.2;
+}
+.preview-render-area h2 {
+  font-size: 1.2rem;
+}
+.preview-render-area h3 {
+  font-size: 1rem;
+} /* Adjusted for section titles */
+.preview-render-area h4 {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+.preview-render-area p,
+.preview-render-area span,
+.preview-render-area div {
+  font-size: 0.875rem;
+} /* 14px base */
+.preview-render-area .text-xs {
+  font-size: 0.75rem;
+} /* 12px */
+.preview-render-area .text-sm {
+  font-size: 0.875rem;
+} /* 14px */
+.preview-render-area .text-base {
+  font-size: 1rem;
+} /* 16px */
+.preview-render-area .text-lg {
+  font-size: 1.125rem;
+} /* 18px */
+.preview-render-area .text-xl {
+  font-size: 1.25rem;
+} /* 20px */
+.preview-render-area .text-3xl {
+  font-size: 1.875rem;
+} /* 30px */
+
+/* Simple Input Field Styling (if not using @tailwindcss/forms) */
+input[type="text"],
+input[type="email"],
+input[type="tel"],
+textarea,
+select {
+  @apply block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-white;
+}
+
+textarea {
+  min-height: 6rem; /* Default textarea height */
+}
+
+/* Style placeholder text */
+::placeholder {
+  @apply text-gray-400 opacity-100;
+}
